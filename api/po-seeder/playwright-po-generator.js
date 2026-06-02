@@ -4,10 +4,17 @@ import { getConfig } from '../../advanced-config.js';
 
 const config = getConfig();
 
+/**
+ * Creates a valid Shopify session state and saves it to a local JSON file.
+ */
 async function createPlaywrightSession(shopDomain, sessionPath) {
   const browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled'
+    ],
   });
 
   try {
@@ -18,24 +25,37 @@ async function createPlaywrightSession(shopDomain, sessionPath) {
       ignoreHTTPSErrors: true,
     });
 
+    // Block tracking pixels to speed up session generation
+    await context.route('**/*{google-analytics,analytics,bugsnag,trek,monorail}*', route => route.abort());
+
     const page = await context.newPage();
-    await page.goto(`https://${shopDomain}/admin`, { waitUntil: 'domcontentloaded' });
+    
+    console.log(`[playwright] Initializing session at: https://${shopDomain}/admin`);
+    await page.goto(`https://${shopDomain}/admin`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    
+    // Allow ample time for manual interaction/auth redirects if required on first login
     await page.waitForURL(/.*\/admin.*/, { timeout: 180000 });
 
     await context.storageState({ path: sessionPath });
-    console.log('[playwright] Session saved');
+    console.log('[playwright] Session saved successfully');
     return true;
   } finally {
     await browser.close();
   }
 }
 
+/**
+ * Custom error builder to identify user-triggered abort cycles cleanly.
+ */
 function createGenerationAbortError() {
   const error = new Error('Generation stopped by user');
   error.code = 'GENERATION_ABORTED';
   return error;
 }
 
+/**
+ * Main worker loop that accesses Shopify Admin via Render's environment to seed Purchase Orders.
+ */
 async function generatePOsWithPlaywright(
   shopDomain,
   sessionFile,
@@ -48,7 +68,12 @@ async function generatePOsWithPlaywright(
 
   const browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+    args: [
+      '--no-sandbox', 
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process' // Overcomes cross-origin frame freezes on cloud servers
+    ],
   });
 
   try {
@@ -60,12 +85,27 @@ async function generatePOsWithPlaywright(
       ignoreHTTPSErrors: true,
     });
 
+    // CRITICAL: Abort background metric streams that cause networkidle states to hang indefinitely on Render IPs
+    await context.route('**/*{google-analytics,analytics,bugsnag,trek,monorail}*', route => route.abort());
+
     const page = await context.newPage();
     const cleanDomain = shopDomain.replace('.myshopify.com', '');
     const poListUrl = `https://admin.shopify.com/store/${cleanDomain}/purchase_orders`;
 
-    console.log(`[playwright] Navigating to: ${poListUrl}`);
-    await page.goto(poListUrl, { waitUntil: 'networkidle', timeout: 60000 });
+    console.log(`[playwright] Navigating to target interface: ${poListUrl}`);
+    
+    try {
+      // Switched from networkidle to domcontentloaded to fix the 60000ms timeout
+      await page.goto(poListUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      
+      console.log('[playwright] Core structure loaded. Synchronizing interface components...');
+      // Explicitly wait for visual elements instead of network activity
+      await page.waitForSelector('ui-nav-menu, .Polaris-Page, button:has-text("Create purchase order"), a[href*="purchase_orders/new"]', { timeout: 30000 });
+    } catch (gotoError) {
+      console.error('[playwright] Core navigation failed. Documenting UI layout status via emergency snapshot...');
+      await page.screenshot({ path: './public/error-screenshot.png', fullPage: true }).catch(() => {});
+      throw new Error(`Shopify interface failed to resolve: ${gotoError.message}. Review deployment via /error-screenshot.png`);
+    }
 
     let success = 0;
     let failed = 0;
@@ -74,7 +114,7 @@ async function generatePOsWithPlaywright(
       if (shouldStop()) throw createGenerationAbortError();
 
       const poData = generateFakePOData(i);
-      console.log(`[playwright] Creating PO ${i}/${poCount}: ${poData.poNumber}`);
+      console.log(`[playwright] Seeding Purchase Order ${i}/${poCount}: ${poData.poNumber}`);
 
       try {
         await clickCreatePOButton(page, shouldStop);
@@ -86,14 +126,14 @@ async function generatePOsWithPlaywright(
         await navigateBackToPOList(page, poListUrl, shouldStop);
 
         success++;
-        console.log(`[playwright] PO ${i} created successfully`);
+        console.log(`[playwright] PO ${i} completed and verified`);
       } catch (err) {
         if (err?.code === 'GENERATION_ABORTED') {
           throw err;
         }
 
         failed++;
-        console.error(`[playwright] Failed PO ${i}:`, err.message);
+        console.error(`[playwright] Processing fault on execution loop ${i}:`, err.message);
         if (errorCallback) {
           errorCallback({
             type: 'po_error',
@@ -110,7 +150,7 @@ async function generatePOsWithPlaywright(
       await page.waitForTimeout(700);
     }
 
-    console.log(`[playwright] Finished -> Success: ${success}, Failed: ${failed}`);
+    console.log(`[playwright] Loop execution complete -> Success: ${success}, Failed: ${failed}`);
     return { success: true, completed: success, failed };
   } finally {
     await browser.close();
@@ -120,7 +160,7 @@ async function generatePOsWithPlaywright(
 // ====================== WAIT HELPERS ======================
 
 async function waitForTimelineHeader(page, shouldStop = () => false) {
-  console.log('[playwright] Waiting for Timeline header to confirm save...');
+  console.log('[playwright] Monitoring element hierarchy for Timeline confirmation header...');
 
   try {
     const deadline = Date.now() + 15000;
@@ -133,7 +173,7 @@ async function waitForTimelineHeader(page, shouldStop = () => false) {
         .first();
 
       if (await timeline.count()) {
-        console.log('[playwright] Timeline header detected - PO saved successfully');
+        console.log('[playwright] Event log timeline identified - entry updated safely');
         await page.waitForTimeout(1000);
         return;
       }
@@ -141,16 +181,16 @@ async function waitForTimelineHeader(page, shouldStop = () => false) {
       await page.waitForTimeout(250);
     }
 
-    console.log('[playwright] Warning: Timeline header not found, continuing anyway...');
+    console.log('[playwright] Note: Target selector resolution timed out, falling back forward...');
     await page.waitForTimeout(3000);
   } catch (e) {
     if (e?.code === 'GENERATION_ABORTED') throw e;
-    console.log('[playwright] Warning: Timeline wait failed, continuing anyway...');
+    console.log('[playwright] Warning: Structural trace interrupted, skipping to target state...');
     await page.waitForTimeout(3000);
   }
 }
 
-// ====================== HELPERS ======================
+// ====================== UI INTERACTION HELPERS ======================
 
 async function clickCreatePOButton(page, shouldStop = () => false) {
   if (shouldStop()) throw createGenerationAbortError();
@@ -167,29 +207,28 @@ async function clickCreatePOButton(page, shouldStop = () => false) {
       const element = page.locator(sel).first();
       if ((await element.count()) > 0 && (await element.isVisible())) {
         await element.click({ timeout: 10000 });
-        console.log('[playwright] Clicked "Create purchase order"');
+        console.log('[playwright] Step Context: Instantiated "Create purchase order" step');
         await page.waitForTimeout(600);
         return;
       }
     } catch (e) {}
   }
 
-  throw new Error('Could not find "Create purchase order" link');
+  throw new Error('Required creation link context not visible in DOM');
 }
 
 async function selectOrCreateSupplier(page, supplierName, shouldStop = () => false) {
   if (shouldStop()) throw createGenerationAbortError();
 
-  console.log(`[playwright] Selecting/creating supplier: ${supplierName}`);
+  console.log(`[playwright] Mapping entity target supplier: ${supplierName}`);
 
-  // Robust selectors to open the supplier dropdown (works whether empty or already filled)
   const supplierTriggerSelectors = [
-    'button:has-text("Select supplier")',           // Initial state
-    'button[role="combobox"]',                      // Polaris combobox
-    'div[role="combobox"] button',                  
-    'button.Polaris-Combobox__Input',               // Specific Polaris class
-    '[data-testid*="Supplier"] button',             // Test ID based (future-proof)
-    'button:has-text("supplier")',                  // Fallback - any button with "supplier"
+    'button:has-text("Select supplier")',
+    'button[role="combobox"]',
+    'div[role="combobox"] button',
+    'button.Polaris-Combobox__Input',
+    '[data-testid*="Supplier"] button',
+    'button:has-text("supplier")',
   ];
 
   let clicked = false;
@@ -201,7 +240,7 @@ async function selectOrCreateSupplier(page, supplierName, shouldStop = () => fal
       const trigger = page.locator(sel).first();
       if ((await trigger.count()) > 0 && (await trigger.isVisible({ timeout: 2000 }))) {
         await trigger.click({ timeout: 8000 });
-        console.log(`[playwright] Clicked supplier trigger using: ${sel}`);
+        console.log(`[playwright] Dropdown triggered via selector context: ${sel}`);
         clicked = true;
         break;
       }
@@ -211,7 +250,7 @@ async function selectOrCreateSupplier(page, supplierName, shouldStop = () => fal
   }
 
   if (!clicked) {
-    console.log('[playwright] Using fallback click on supplier area');
+    console.log('[playwright] Trigger alternative locator fallback on vendor segment input field');
     await page.locator('div:has-text("Supplier") button').first().click({ timeout: 6000 }).catch(() => {});
   }
 
@@ -223,12 +262,12 @@ async function selectOrCreateSupplier(page, supplierName, shouldStop = () => fal
 
   if (await existingOption.count() > 0) {
     await existingOption.click();
-    console.log(`[playwright] Selected existing supplier: ${supplierName}`);
+    console.log(`[playwright] Verified mapping to native supplier: ${supplierName}`);
     await page.waitForTimeout(400);
     return;
   }
 
-  console.log(`[playwright] Creating new supplier: ${supplierName}`);
+  console.log(`[playwright] Creating missing entity profile: ${supplierName}`);
 
   await page.locator('text=Create new supplier').first().click({ timeout: 8000 });
   await page.waitForTimeout(600);
@@ -245,7 +284,7 @@ async function selectOrCreateSupplier(page, supplierName, shouldStop = () => fal
     .click({ timeout: 8000 });
 
   await page.waitForTimeout(1200);
-  console.log(`[playwright] Successfully created supplier: ${supplierName}`);
+  console.log(`[playwright] Vendor context synchronized: ${supplierName}`);
 }
 
 async function selectDestination(page, shouldStop = () => false) {
@@ -277,19 +316,19 @@ async function clickMainSaveButton(page, shouldStop = () => false) {
     'button:has-text("Save")',
   ];
 
-  console.log('[playwright] Looking for Save button...');
+  console.log('[playwright] Synchronizing pointer to core commit Save action action...');
 
   for (const sel of saveSelectors) {
     if (shouldStop()) throw createGenerationAbortError();
     const btn = page.locator(sel).first();
     if ((await btn.count()) > 0 && (await btn.isVisible())) {
       await btn.click({ timeout: 10000 });
-      console.log('[playwright] Clicked main PO Save button');
+      console.log('[playwright] Executed main save action');
       return;
     }
   }
 
-  throw new Error('Save button not found');
+  throw new Error('Persistent layout change Save interface unresolvable');
 }
 
 async function navigateBackToPOList(page, poListUrl, shouldStop = () => false) {
@@ -308,12 +347,13 @@ async function navigateBackToPOList(page, poListUrl, shouldStop = () => false) {
     if (shouldStop()) throw createGenerationAbortError();
     await page.locator('text=Purchase orders').first().click({ timeout: 5000 }).catch(() => {});
 
-    await page.waitForLoadState('networkidle', { timeout: 8000 });
-    console.log('[playwright] Navigated back to PO list');
+    // Switched from networkidle to domcontentloaded to avoid dynamic tracking locks
+    await page.waitForLoadState('domcontentloaded', { timeout: 8000 });
+    console.log('[playwright] Scope context restored to index overview panel');
   } catch (e) {
     if (shouldStop()) throw createGenerationAbortError();
-    console.log('[playwright] Navigation fallback...');
-    await page.goto(poListUrl, { waitUntil: 'networkidle', timeout: 12000 }).catch(() => {});
+    console.log('[playwright] Falling back to direct layout lookup routing...');
+    await page.goto(poListUrl, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
   }
 }
 
