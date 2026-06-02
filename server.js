@@ -1,4 +1,3 @@
-// server.js
 // Complete Express server setup for Shopify PO Seeder app
 
 import express from 'express';
@@ -18,13 +17,21 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const APP_URL = process.env.SHOPIFY_APP_URL || `http://localhost:${PORT}`;
 
-// Middleware
-app.use(cors());
+// Middleware - Restrict CORS in production for better security
+const corsOptions = {
+  origin: NODE_ENV === 'production' 
+    ? [APP_URL, /\.myshopify\.com$/] // Allows your app domain and any shopify admin store
+    : '*', // Allows everything in local development
+  credentials: true
+};
+app.use(cors(corsOptions));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// Trust proxy for proper IP handling
+// Trust proxy for proper IP handling (Crucial for Render's load balancers)
 app.set('trust proxy', true);
 
 // Initialize storage
@@ -84,13 +91,13 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════════╗
-║   🛒 Shopify PO Seeder Server Started     ║
+║    🛒 Shopify PO Seeder Server Started     ║
 ╚════════════════════════════════════════════╝
 
 Environment: ${NODE_ENV}
 Port: ${PORT}
-URL: http://localhost:${PORT}
-API: http://localhost:${PORT}/api
+URL: ${APP_URL}
+API: ${APP_URL}/api
 
 Endpoints:
   - POST /api/po-seeder/check-session
@@ -98,10 +105,10 @@ Endpoints:
   - POST /api/po-seeder/generate-pos
   - POST /api/po-seeder/delete-session
 
-Admin Dashboard: http://localhost:${PORT}
+Admin Dashboard: ${APP_URL}
   `);
 
-  // Cleanup old sessions on startup (optional)
+  // Cleanup old sessions on startup
   if (NODE_ENV === 'production') {
     storageManager.clearOldSessions(30).catch(console.error);
   }
