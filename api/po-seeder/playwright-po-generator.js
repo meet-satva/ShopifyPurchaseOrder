@@ -48,7 +48,6 @@ async function generatePOsWithPlaywright(
 
   const browser = await chromium.launch({
     headless: true,
-    channel: 'chrome',
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
   });
 
