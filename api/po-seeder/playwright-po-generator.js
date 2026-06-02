@@ -7,7 +7,6 @@ const config = getConfig();
 async function createPlaywrightSession(shopDomain, sessionPath) {
   const browser = await chromium.launch({
     headless: true,
-    channel: 'chrome',
     args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
   });
 
