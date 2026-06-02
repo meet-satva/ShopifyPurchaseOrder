@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shopify PO Seeder</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f3f4f6;
+        color: #111827;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; padding: 24px; }
+      .container { max-width: 960px; margin: 0 auto; }
+      .card { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 24px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08); padding: 28px; margin-bottom: 24px; }
+      h1 { margin: 0 0 12px; font-size: clamp(2rem, 2.5vw, 2.75rem); }
+      h2 { margin-top: 0; }
+      p { line-height: 1.75; margin: 0 0 16px; }
+      label { display: block; margin-bottom: 16px; font-weight: 600; }
+      input[type="text"], input[type="number"] { width: 100%; padding: 12px 14px; border: 1px solid #d1d5db; border-radius: 12px; background: #f9fafb; font-size: 1rem; }
+      button { appearance: none; border: none; border-radius: 12px; padding: 12px 18px; font-size: 1rem; cursor: pointer; background: #2563eb; color: white; transition: background 0.2s ease; }
+      button:hover { background: #1d4ed8; }
+      button.secondary { background: #6b7280; }
+      button.secondary:hover { background: #4b5563; }
+      button.danger { background: #dc2626; }
+      button.danger:hover { background: #b91c1c; }
+      .button-group button { margin-right: 12px; margin-top: 8px; }
+      #progressLog { min-height: 150px; white-space: pre-wrap; background: #111827; color: #f9fafb; padding: 16px; border-radius: 16px; overflow: auto; margin-top: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+      .status { margin-top: 16px; padding: 14px 16px; border-radius: 16px; background: #f8fafc; color: #111827; border: 1px solid #e5e7eb; }
+      .status.success { background: #ecfdf5; border-color: #d1fae5; color: #065f46; }
+      .status.error { background: #fef2f2; border-color: #fecdd3; color: #831843; }
+      .flag { display: inline-flex; align-items: center; padding: 8px 12px; border-radius: 999px; background: #e0f2fe; color: #0369a1; font-size: 0.95rem; margin-bottom: 16px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="card">
+        <h1>Shopify PO Seeder</h1>
+        <p>Use this page to create a Shopify browser session, generate purchase orders, and track progress in real time.</p>
+      </div>
+
+      <div class="card" id="session-card">
+        <h2>Shopify Session</h2>
+        <label>
+          Store domain
+          <input id="shopDomain" type="text" placeholder="yourstore.myshopify.com" />
+        </label>
+        <div class="button-group">
+          <button id="checkSession">Check Session</button>
+          <button id="createSession">Create Session</button>
+          <button id="deleteSession">Delete Session</button>
+        </div>
+        <div id="sessionStatus" class="status">Enter your Shopify store domain and click <strong>Check Session</strong>.</div>
+      </div>
+
+      <div class="card" id="generate-card">
+        <h2>Generate Purchase Orders</h2>
+        <label>
+          PO count
+          <input id="poCount" type="number" min="1" max="5000" value="10" />
+        </label>
+        <div class="button-group">
+          <button id="generatePOs">Start Generation</button>
+          <button id="stopSeeding" class="danger" disabled>Stop seeding</button>
+        </div>
+        <div id="generateStatus" class="status">Create a session first, then generate purchase orders.</div>
+        <pre id="progressLog">Progress log will appear here.</pre>
+      </div>
+    </div>
+
+    <script>
+      const apiRoot = '/api/po-seeder';
+      const shopInput = document.getElementById('shopDomain');
+      const poCountInput = document.getElementById('poCount');
+      const sessionStatus = document.getElementById('sessionStatus');
+      const generateStatus = document.getElementById('generateStatus');
+      const progressLog = document.getElementById('progressLog');
+      const startButton = document.getElementById('generatePOs');
+      const stopButton = document.getElementById('stopSeeding');
+      let generationRequest = null;
+
+      const setStatus = (element, message, type = 'info') => {
+        element.textContent = message;
+        element.className = type === 'error' ? 'status error' : type === 'success' ? 'status success' : 'status';
+      };
+
+      const postJson = async (path, data) => {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        return response.json().catch(() => ({ error: 'Invalid JSON response' }));
+      };
+
+      document.getElementById('checkSession').addEventListener('click', async () => {
+        const shopDomain = shopInput.value.trim();
+        if (!shopDomain) return setStatus(sessionStatus, 'Enter a Shopify shop domain first.', 'error');
+        setStatus(sessionStatus, 'Checking session...', 'info');
+        const result = await postJson(`${apiRoot}/check-session`, { shopDomain });
+        if (result.sessionExists) {
+          setStatus(sessionStatus, `Session exists for ${shopDomain}. Ready to generate POs.`, 'success');
+        } else {
+          setStatus(sessionStatus, `No session found for ${shopDomain}. Create a session first.`, 'error');
+        }
+      });
+
+      document.getElementById('createSession').addEventListener('click', async () => {
+        const shopDomain = shopInput.value.trim();
+        if (!shopDomain || !shopDomain.includes('myshopify.com')) {
+          return setStatus(sessionStatus, 'Provide a valid shop domain like yourstore.myshopify.com.', 'error');
+        }
+        setStatus(sessionStatus, 'Creating session... A browser window will open for Shopify login.', 'info');
+        const result = await postJson(`${apiRoot}/create-session`, { shopDomain });
+        if (result.success) {
+          setStatus(sessionStatus, 'Session created successfully. You can now generate POs.', 'success');
+        } else {
+          setStatus(sessionStatus, result.error || 'Failed to create session.', 'error');
+        }
+      });
+
+      document.getElementById('deleteSession').addEventListener('click', async () => {
+        const shopDomain = shopInput.value.trim();
+        if (!shopDomain) return setStatus(sessionStatus, 'Enter a Shopify shop domain first.', 'error');
+        setStatus(sessionStatus, 'Deleting session...', 'info');
+        const result = await postJson(`${apiRoot}/delete-session`, { shopDomain });
+        if (result.success) {
+          setStatus(sessionStatus, 'Session deleted successfully.', 'success');
+        } else {
+          setStatus(sessionStatus, result.error || 'Could not delete session.', 'error');
+        }
+      });
+
+      document.getElementById('generatePOs').addEventListener('click', async () => {
+        const shopDomain = shopInput.value.trim();
+        const poCount = Number(poCountInput.value);
+        if (!shopDomain) return setStatus(generateStatus, 'Enter a Shopify shop domain first.', 'error');
+        if (!poCount || poCount < 1 || poCount > 5000) {
+          return setStatus(generateStatus, 'Enter a PO count between 1 and 5000.', 'error');
+        }
+
+        setStatus(generateStatus, 'Starting PO generation...', 'info');
+        progressLog.textContent = 'Connecting to generation stream...\n';
+        startButton.disabled = true;
+        stopButton.disabled = false;
+        generationRequest = new AbortController();
+
+        try {
+          const response = await fetch(`${apiRoot}/generate-pos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shopDomain, poCount }),
+            signal: generationRequest.signal,
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            setStatus(generateStatus, `Generation request failed: ${response.status} ${response.statusText}`, 'error');
+            progressLog.textContent += errorText;
+            return;
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder('utf-8');
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let boundary = buffer.indexOf('\n\n');
+            while (boundary !== -1) {
+              const chunk = buffer.slice(0, boundary).trim();
+              buffer = buffer.slice(boundary + 2);
+              boundary = buffer.indexOf('\n\n');
+
+              if (!chunk) continue;
+              const lines = chunk.split('\n');
+              for (const line of lines) {
+                if (!line.startsWith('data:')) continue;
+                const payload = line.replace(/^data:\s*/, '');
+                try {
+                  const data = JSON.parse(payload);
+                  if (data.type === 'progress') {
+                    progressLog.textContent += `Progress: ${data.completed}/${data.total}\n`;
+                  } else if (data.type === 'complete') {
+                    progressLog.textContent += `Completed ${data.completed} POs.\n`;
+                    setStatus(generateStatus, 'PO generation completed successfully.', 'success');
+                    startButton.disabled = false;
+                    stopButton.disabled = true;
+                  } else if (data.type === 'error') {
+                    const message = data.poNumber
+                      ? `Error creating ${data.poNumber}: ${data.message || data.error || 'Unknown error'}`
+                      : `Error: ${data.message || data.error || 'Unknown error'}`;
+                    progressLog.textContent += `${message}\n`;
+                    setStatus(generateStatus, message, 'error');
+                  } else if (data.type === 'stopped') {
+                    progressLog.textContent += 'Generation stopped.\n';
+                    setStatus(generateStatus, 'PO generation stopped.', 'info');
+                    startButton.disabled = false;
+                    stopButton.disabled = true;
+                  }
+                } catch (error) {
+                  progressLog.textContent += `Could not parse event data: ${payload}\n`;
+                }
+              }
+            }
+          }
+
+          if (buffer.trim()) {
+            progressLog.textContent += `${buffer.trim()}\n`;
+          }
+        } catch (error) {
+          if (error.name === 'AbortError') {
+            setStatus(generateStatus, 'PO generation stopped.', 'info');
+            progressLog.textContent += 'Generation stopped.\n';
+          } else {
+            setStatus(generateStatus, `Network failure: ${error.message}`, 'error');
+          }
+        } finally {
+          startButton.disabled = false;
+          stopButton.disabled = true;
+          generationRequest = null;
+        }
+      });
+
+      stopButton.addEventListener('click', async () => {
+        stopButton.disabled = true;
+        progressLog.textContent += 'Stop requested...\n';
+
+        if (generationRequest) {
+          generationRequest.abort();
+        }
+
+        try {
+          await postJson(`${apiRoot}/stop-generation`, {});
+        } catch (error) {
+          progressLog.textContent += `Stop request failed: ${error.message}\n`;
+        }
+      });
+    </script>
+  </body>
+</html>

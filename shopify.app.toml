@@ -1,0 +1,20 @@
+# Shopify App Configuration
+# Place this in root directory for Shopify CLI integration
+
+scopes = "write_purchase_orders,read_purchase_orders,write_products,read_products"
+
+[build]
+dev_store_prefix = "po-seeder"
+
+[webhooks]
+api_version = "2024-01"
+
+[[webhooks.subscriptions]]
+topics = ["shop/update"]
+uri = "api/webhooks/shop-update"
+
+[app_extensions]
+dir = "extensions"
+
+[settings]
+log_http = true
