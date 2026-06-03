@@ -175,63 +175,6 @@ curl -X POST http://localhost:3000/api/po-seeder/delete-session \
 {"success": true, "message": "Session deleted"}
 ```
 
-##  Production Deployment
-
-### Option 1: Heroku (Easiest)
-
-```bash
-# Install Heroku CLI
-brew install heroku
-
-# Login
-heroku login
-
-# Create app
-heroku create your-app-name
-
-# Set secrets
-heroku config:set SESSION_ENCRYPTION_KEY=$(openssl rand -hex 32)
-
-# Deploy
-git push heroku main
-
-# View
-heroku open
-```
-
-### Option 2: Railway.app (Recommended)
-
-1. Push to GitHub
-2. Connect repo at https://railway.app
-3. Auto-detects Node.js
-4. Deploy with one click
-5. Auto HTTPS included
-
-### Option 3: VPS (Full Control)
-
-```bash
-# SSH into server
-ssh user@your-vps-ip
-
-# Install Node.js
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs
-
-# Clone repo
-git clone https://github.com/you/shopify-po-seeder.git
-cd shopify-po-seeder
-
-# Install & start
-npm install --production
-npm start &
-
-# Use PM2 for persistence
-npm install -g pm2
-pm2 start server.js
-pm2 startup
-pm2 save
-```
-
 ## 🧪 Testing
 
 ### Test Data Generation
