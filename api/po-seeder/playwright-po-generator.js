@@ -24,7 +24,7 @@ async function createPlaywrightSession(shopDomain, sessionPath) {
       ignoreHTTPSErrors: true,
     });
 
-    await context.route('**/*{google-analytics,analytics,bugsnag,trek,monorail}*', route => route.abort());
+await context.route('**/*{google-analytics,analytics,bugsnag,trek,monorail}*', route => route.abort());
 
     const page = await context.newPage();
 
@@ -34,11 +34,11 @@ async function createPlaywrightSession(shopDomain, sessionPath) {
     await page.waitForURL(/.*\/admin.*/, { timeout: 180000, waitUntil: 'domcontentloaded' });
 
     await page.waitForSelector(
-      '.Polaris-Page, a[href*="purchase_orders/new"], a[href*="purchase_orders"]',
-      { timeout: 30000 }
-    ).catch(() => {
-      console.warn('[playwright] Warning: Admin nav not detected — session may be incomplete');
-    });
+  '[data-polaris-scrollable], .Polaris-Navigation, .Polaris-Frame',
+  { timeout: 60000 }
+).catch(() => {
+  console.warn('[playwright] Warning: Admin nav not detected — session may be incomplete');
+});
 
     await context.storageState({ path: sessionPath });
     console.log('[playwright] Session saved successfully');
@@ -104,7 +104,7 @@ await context.route('**/*{google-analytics,analytics,bugsnag,trek,monorail}*', r
       
       console.log('[playwright] Core structure loaded. Synchronizing interface components...');
       // Explicitly wait for visual elements instead of network activity
-     await page.waitForSelector('.Polaris-Page, a[href*="purchase_orders/new"], a[href*="purchase_orders"]', { timeout: 30000 });
+     await page.waitForSelector('.Polaris-Page, a[href*="purchase_orders/new"], a[href*="purchase_orders"]', { timeout: 60000 });
     } catch (gotoError) {
       console.error('[playwright] Core navigation failed. Documenting UI layout status via emergency snapshot...');
       await page.screenshot({ path: './public/error-screenshot.png', fullPage: true }).catch(() => {});
