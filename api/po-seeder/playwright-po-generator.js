@@ -26,7 +26,7 @@ async function createPlaywrightSession(shopDomain, sessionPath) {
     });
 
     // Block tracking pixels to speed up session generation
-    await context.route('**/*{google-analytics,analytics,bugsnag,trek,monorail}*', route => route.abort());
+await context.route('**/*{google-analytics,analytics,bugsnag,trek,monorail}*', route => route.abort());
 
     const page = await context.newPage();
     
@@ -34,8 +34,17 @@ async function createPlaywrightSession(shopDomain, sessionPath) {
     await page.goto(`https://${shopDomain}/admin`, { waitUntil: 'domcontentloaded', timeout: 60000 });
     
     // Allow ample time for manual interaction/auth redirects if required on first login
-    await page.waitForURL(/.*\/admin.*/, { timeout: 180000 });
+await page.waitForURL(/.*\/admin.*/, { timeout: 180000, waitUntil: 'domcontentloaded' });
 
+// Confirm we landed on a real admin page, not a login loop
+await page.waitForSelector('.Polaris-Navigation, ui-nav-menu, [data-polaris-scrollable]', { 
+  timeout: 30000 
+}).catch(() => {
+  console.warn('[playwright] Warning: Admin nav not detected — session may be incomplete');
+});
+
+await context.storageState({ path: sessionPath });
+    
     await context.storageState({ path: sessionPath });
     console.log('[playwright] Session saved successfully');
     return true;
@@ -43,6 +52,7 @@ async function createPlaywrightSession(shopDomain, sessionPath) {
     await browser.close();
   }
 }
+
 
 /**
  * Custom error builder to identify user-triggered abort cycles cleanly.
@@ -86,7 +96,7 @@ async function generatePOsWithPlaywright(
     });
 
     // CRITICAL: Abort background metric streams that cause networkidle states to hang indefinitely on Render IPs
-    await context.route('**/*{google-analytics,analytics,bugsnag,trek,monorail}*', route => route.abort());
+await context.route('**/*{google-analytics,analytics,bugsnag,trek,monorail}*', route => route.abort());
 
     const page = await context.newPage();
     const cleanDomain = shopDomain.replace('.myshopify.com', '');
