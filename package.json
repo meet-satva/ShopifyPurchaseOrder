@@ -6,6 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "postinstall": "npx playwright install chromium && npm install chrome",
     "dev": "NODE_ENV=development node server.js",
     "test": "node tests/test-data-generator.js",
     "clean-sessions": "node scripts/cleanup-sessions.js",
