@@ -104,8 +104,8 @@ await context.route('**/*{google-analytics,analytics,bugsnag,trek,monorail}*', r
       
       console.log('[playwright] Core structure loaded. Synchronizing interface components...');
       // Explicitly wait for visual elements instead of network activity
-     await page.waitForSelector('.Polaris-Page, a[href*="purchase_orders/new"], a[href*="purchase_orders"]', { timeout: 60000 });
-    } catch (gotoError) {
+      await page.waitForSelector('s-internal-page, .Polaris-Layout, .Polaris-Table', { timeout: 60000 });    } 
+    catch (gotoError) {
       console.error('[playwright] Core navigation failed. Documenting UI layout status via emergency snapshot...');
       await page.screenshot({ path: './public/error-screenshot.png', fullPage: true }).catch(() => {});
       throw new Error(`Shopify interface failed to resolve: ${gotoError.message}. Review deployment via /error-screenshot.png`);
