@@ -221,31 +221,6 @@ await page.getByRole('button', { name: 'Create' }).first();
 headless: true  // was false
 ```
 
-## 🔧 Configuration
-
-### Environment Variables
-
-```bash
-# Server
-PORT=3000
-NODE_ENV=production
-
-# Security
-SESSION_ENCRYPTION_KEY=your-secure-key
-
-# Paths
-SESSIONS_DIR=./sessions
-LOG_FILE=./logs/po-seeder.log
-
-# Playwright
-PLAYWRIGHT_HEADLESS=true
-PLAYWRIGHT_TIMEOUT=30000
-
-# PO Generation
-MAX_RETRIES=3
-RETRY_DELAY=2000
-```
-
 ## 🛡️ Security
 
 ### Best Practices Applied
@@ -257,27 +232,7 @@ RETRY_DELAY=2000
 - ✅ Error messages don't leak system info
 - ✅ Automatic session expiration (30 days)
 
-### For Production
-```bash
-# 1. Generate strong encryption key
-openssl rand -hex 32
-
-# 2. Update .env with key
-SESSION_ENCRYPTION_KEY=your-generated-key
-
-# 3. Enable HTTPS (use Let's Encrypt)
-# 4. Add rate limiting
-# 5. Monitor logs regularly
 ```
-
-## 📚 Documentation
-
-- **[SETUP-GUIDE.md](SETUP-GUIDE.md)** - Detailed setup & deployment
-- **[API.md](API.md)** - Complete API reference
-- **[SECURITY.md](SECURITY.md)** - Security guidelines
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues & fixes
-
-## 🐛 Troubleshooting
 
 ### Common Issues
 
@@ -304,23 +259,6 @@ Update selectors in playwright-po-generator.js
 Use getByRole() instead of hard-coded CSS selectors
 ```
 
-## 📊 Logs
-
-```bash
-# View logs in development
-npm start
-# All output in console
-
-# View in production
-docker-compose logs -f
-
-# With PM2
-pm2 logs po-seeder
-
-# Log file
-tail -f logs/po-seeder.log
-```
-
 ## 📝 License
 
 MIT License - Free for commercial and personal use
@@ -332,13 +270,6 @@ Found a bug? Have an idea?
 1. Create an issue with details
 2. Submit pull request with fix
 3. Follow Node.js/Express conventions
-
-## 📞 Support
-
-- 💬 GitHub Issues - Bug reports & features
-- 📧 Email - Direct support
-- 🔗 Documentation - Full guides included
-
 ---
 
 ## 🎯 What's Next?
